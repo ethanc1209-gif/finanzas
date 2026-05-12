@@ -25,9 +25,15 @@ export default function AddGoalDialog({ open, onClose, onSuccess }) {
   async function handleSubmit() {
     if (!name || !target) return;
     setLoading(true);
+    const me = await client.auth.me();
+    if (!me?.email) {
+      setLoading(false);
+      return;
+    }
     await client.entities.SavingsGoal.create({
       name, target_amount: parseFloat(target),
       current_amount: 0, deadline, icon,
+      created_by: me.email,
     });
     setLoading(false);
     setName(""); setTarget(""); setDeadline(""); setIcon("target");

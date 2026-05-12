@@ -45,16 +45,44 @@ export default function AddTransactionSheet({ open, onClose, type = "expense", a
 
   async function handleSubmit() {
     if (!amount || !category) return;
-    onSuccess?.();
-    onClose();
-    await client.entities.Transaction.create({
-      type, amount: parseFloat(amount), category,
-      description, date, account, is_recurring: isRecurring,
-    });
-    const acc = accounts?.find(a => a.name === account);
-    if (acc) {
-      const delta = type === "income" ? parseFloat(amount) : -parseFloat(amount);
-      await client.entities.Account.update(acc.id, { balance: acc.balance + delta });
+    setLoading(true);
+    try {
+      const me = await client.auth.me();
+      if (!me?.email) return;
+      await client.entities.Transaction.create({
+        type,
+        amount: parseFloat(amount),
+        category,
+        description,
+        date,
+        account,
+        is_recurring: isRecurring,
+        created_by: me.email,
+      });
+      const amountNum = parseFloat(amount);
+      const delta = type === "income" ? amountNum : -amountNum;
+      const accountName = (account || "Efectivo").trim() || "Efectivo";
+
+      let accRow = accounts?.find((a) => a.name === accountName);
+      if (!accRow) {
+        const matches = await client.entities.Account.filter({ created_by: me.email, name: accountName });
+        accRow = matches[0];
+      }
+      if (!accRow) {
+        accRow = await client.entities.Account.create({
+          name: accountName,
+          type: "cash",
+          balance: 0,
+          created_by: me.email,
+        });
+      }
+      await client.entities.Account.update(accRow.id, {
+        balance: (accRow.balance || 0) + delta,
+      });
+      await onSuccess?.();
+      onClose();
+    } finally {
+      setLoading(false);
     }
   }
 

@@ -179,10 +179,16 @@ function AddAccountDialog({ open, onClose, onSuccess }) {
   async function handleSubmit() {
     if (!name) return;
     setLoading(true);
+    const me = await client.auth.me();
+    if (!me?.email) {
+      setLoading(false);
+      return;
+    }
     await client.entities.Account.create({
       name,
       type,
       balance: parseFloat(balance) || 0,
+      created_by: me.email,
     });
     setLoading(false);
     setName("");

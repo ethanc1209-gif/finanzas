@@ -54,6 +54,11 @@ export const appParams = {
 }
 
 const LOCAL_DB_KEY = "finanzas_data_v1";
+const SESSION_KEY = "finanzas_session_v1";
+const USER_EMAIL_KEY = "finanzas_user_email";
+const USER_NAME_KEY = "finanzas_user_name";
+/** Filas antiguas sin `created_by` se listan con este correo para que coincidan con el usuario local por defecto. */
+const DEFAULT_LOCAL_EMAIL = "local@finanzas.app";
 const ENTITY_NAMES = ["Transaction", "Budget", "Account", "Achievement", "SavingsGoal"];
 
 const readLocalDB = () => {
@@ -69,6 +74,46 @@ const writeLocalDB = (db) => {
 	if (typeof window === "undefined") return;
 	window.localStorage.setItem(LOCAL_DB_KEY, JSON.stringify(db));
 };
+
+/** Asigna `created_by` a filas legacy para que los filtros por usuario las encuentren. */
+const migrateLocalDB = () => {
+	if (typeof window === "undefined") return;
+	try {
+		const db = readLocalDB();
+		let changed = false;
+		for (const name of ENTITY_NAMES) {
+			const rows = db[name];
+			if (!Array.isArray(rows)) continue;
+			for (const row of rows) {
+				if (row && (row.created_by === undefined || row.created_by === null || row.created_by === "")) {
+					row.created_by = DEFAULT_LOCAL_EMAIL;
+					changed = true;
+				}
+			}
+		}
+		if (changed) writeLocalDB(db);
+	} catch {
+		/* ignore */
+	}
+};
+
+/** Si ya había datos guardados antes de la sesión explícita, mantener la sesión iniciada. */
+const migrateSessionIfDataExists = () => {
+	if (typeof window === "undefined") return;
+	if (window.localStorage.getItem(SESSION_KEY) === "1") return;
+	try {
+		const raw = window.localStorage.getItem(LOCAL_DB_KEY);
+		if (!raw || raw === "{}") return;
+		const db = JSON.parse(raw);
+		const hasData = ENTITY_NAMES.some((n) => Array.isArray(db[n]) && db[n].length > 0);
+		if (hasData) window.localStorage.setItem(SESSION_KEY, "1");
+	} catch {
+		/* ignore */
+	}
+};
+
+migrateLocalDB();
+migrateSessionIfDataExists();
 
 const getRows = (db, name) => {
 	if (!Array.isArray(db[name])) db[name] = [];
@@ -129,20 +174,40 @@ for (const name of ENTITY_NAMES) entities[name] = makeEntity(name);
 
 export const client = {
 	auth: {
-		me: async () => ({
-			id: "local-user",
-			full_name: "Usuario Local",
-			email: "local@finanzas.app",
-			role: "user",
-		}),
+		me: async () => {
+			if (typeof window === "undefined") return null;
+			migrateLocalDB();
+			migrateSessionIfDataExists();
+			if (window.localStorage.getItem(SESSION_KEY) !== "1") return null;
+			const email = window.localStorage.getItem(USER_EMAIL_KEY) || DEFAULT_LOCAL_EMAIL;
+			const full_name = window.localStorage.getItem(USER_NAME_KEY) || "Usuario Local";
+			return {
+				id: "local-user",
+				full_name,
+				email,
+				role: "user",
+			};
+		},
+		login: async ({ email, fullName = "" } = {}) => {
+			if (typeof window === "undefined") return;
+			const e = String(email || "").trim();
+			if (!e) throw new Error("email_required");
+			window.localStorage.setItem(SESSION_KEY, "1");
+			window.localStorage.setItem(USER_EMAIL_KEY, e);
+			const n = String(fullName || "").trim();
+			if (n) window.localStorage.setItem(USER_NAME_KEY, n);
+			else window.localStorage.removeItem(USER_NAME_KEY);
+		},
 		logout: () => {
 			if (typeof window === "undefined") return;
-			window.localStorage.removeItem(LOCAL_DB_KEY);
-			window.location.href = "/";
+			window.localStorage.removeItem(SESSION_KEY);
+			window.localStorage.removeItem(USER_EMAIL_KEY);
+			window.localStorage.removeItem(USER_NAME_KEY);
+			window.location.href = "/login";
 		},
 		redirectToLogin: () => {
 			if (typeof window === "undefined") return;
-			window.location.href = "/";
+			window.location.href = "/login";
 		},
 	},
 	entities,

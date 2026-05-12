@@ -20,7 +20,7 @@ export default function Transactions() {
   useEffect(() => {
     loadData();
     const params = new URLSearchParams(window.location.search);
-    const action = params.get("action");
+    const action = params.get("action") || params.get("type");
     if (action === "income" || action === "expense") {
       setTxType(action);
       setSheetOpen(true);
